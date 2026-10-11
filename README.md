@@ -2,7 +2,7 @@
 
 > **English:** Migrate your [Bangumi](https://bgm.tv) (bgm.tv) anime / TV watch history, ratings and wishlist to [Trakt](https://trakt.tv).
 > Bangumi stores every season (or cour) as a separate subject; this tool maps each one to the right Trakt show + season + episode by matching air dates, then writes history, ratings and watchlist via the Trakt API.
-> Pure Python standard library, no dependencies (Python ≥ 3.9). Usage: `auth` → `match` → `review` → `sync --dry-run` → `sync` (see below).
+> Pure Python standard library, no dependencies (Python ≥ 3.9). Usage: `auth` → `match` → `review` → `sync --dry-run` → `sync` → `report` (an HTML page comparing Bangumi with what is actually on Trakt; see below).
 
 把 Bangumi（bgm.tv）的动画/三次元观看记录、评分、想看列表同步到 Trakt。纯 Python 标准库，无需安装依赖（Python ≥ 3.9）。
 
@@ -118,6 +118,7 @@ python -m bgm2trakt match                 #    再匹配全部
 python -m bgm2trakt review                # 3. 查看需要人工检查的条目
 python -m bgm2trakt sync --dry-run        # 4. 预览将写入的内容（不会写入）
 python -m bgm2trakt sync                  # 5. 正式写入
+python -m bgm2trakt report                # 6. 生成网页报告，核对 Trakt 上的结果
 ```
 
 **1. `auth` 登录 Trakt**
@@ -145,6 +146,20 @@ python -m bgm2trakt sync                  # 5. 正式写入
 
 - 已经在 Trakt 上标记过的集会自动跳过，重复运行不会产生重复记录，所以中断后直接重跑即可
 - 写入的观看记录只能在 Trakt 网页上手动删除，所以第 4 步的预览一定要看
+
+**6. `report` 核对结果（可选）**
+
+```powershell
+python -m bgm2trakt report
+```
+
+从 Trakt 读取当前的实际数据，和 Bangumi 逐条对照，生成 `data/report.html` 并自动用浏览器打开。每个条目显示 Bangumi 封面、名称、评分，对应到 Trakt 的哪部剧哪一季，以及 Trakt 上实际看了几集、评分有没有写进去：
+
+- **一致**：观看记录、评分、watchlist 都已经在 Trakt 上
+- **部分缺失 / 缺失**：会列出缺了哪几集、或缺评分，可以点链接到 Trakt 页面查看
+- **未同步**：`uncertain`、`not_found`、`skip` 的条目
+
+默认只显示需要检查的条目，点上方的数字卡片可以切换，也可以按收藏状态、剧集 / 电影筛选，或搜索名称。只读取，不会修改 Trakt 上的数据。
 
 ## 匹配原理
 

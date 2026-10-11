@@ -4,11 +4,13 @@ import logging
 import logging.handlers
 import platform
 import sys
+import webbrowser
 from collections import Counter
 from pathlib import Path
 
 from .bangumi import Bangumi
 from .matcher import Matcher, describe
+from .report import build_report, render
 from .sync import apply_plan, build_plan
 from .tmdb import TMDB
 from .trakt import Trakt
@@ -19,6 +21,7 @@ CONFIG = ROOT / "config.json"
 MAPPING = DATA / "mapping.json"
 SUBJECTS = DATA / "subjects_cache.json"
 LOG_FILE = DATA / "bgm2trakt.log"
+REPORT = DATA / "report.html"
 
 log = logging.getLogger("bgm2trakt")
 
@@ -56,7 +59,7 @@ def make_trakt(cfg):
 def fetch_collections(cfg):
     b = cfg["bangumi"]
     bgm = Bangumi(b.get("access_token", ""))
-    username = b.get("username") or bgm.me()["username"]
+    username = bgm.username = b.get("username") or bgm.me()["username"]
     items = []
     for st in b.get("subject_types", [2, 6]):
         items += bgm.collections(username, st)
@@ -141,9 +144,11 @@ def resolve_manual(trakt, mapping):
     """Manual entries may give only trakt_slug (copied from a trakt.tv URL) or only trakt_id; fill in the rest."""
     changed = False
     for e in mapping.values():
-        if e["status"] == "manual" and not (e.get("trakt_id") and e.get("trakt_title")) and (e.get("trakt_id") or e.get("trakt_slug")):
+        complete = e.get("trakt_id") and e.get("trakt_slug") and e.get("trakt_title")
+        if e["status"] == "manual" and not complete and (e.get("trakt_id") or e.get("trakt_slug")):
             obj = trakt.summary(e["type"], e.get("trakt_id") or e["trakt_slug"])
             e["trakt_id"] = obj["ids"]["trakt"]
+            e["trakt_slug"] = obj["ids"]["slug"]
             e["trakt_title"] = f"{obj['title']} ({obj.get('year')})"
             changed = True
         if e["status"] == "manual" and e.get("type") == "show":
@@ -171,6 +176,22 @@ def cmd_sync(cfg, args):
         log.info(f"\n[dry-run] 没有写入 Trakt。完整请求内容见 {DATA / 'last_plan.json'}")
         return
     apply_plan(trakt, bodies)
+    log.info("可以运行 `python -m bgm2trakt report` 生成对照网页，检查 Trakt 上的结果")
+
+
+def cmd_report(cfg, args):
+    bgm, items = fetch_collections(cfg)
+    trakt = make_trakt(cfg)
+    mapping = load_json(MAPPING, {})
+    if resolve_manual(trakt, mapping):
+        save_json(MAPPING, mapping)
+    rows = build_report(items, mapping, trakt, cfg["sync"])
+    REPORT.write_text(render(rows, bgm.username), "utf-8")
+    counts = Counter(r["verdict"] for r in rows)
+    log.info(f"一致 {counts['ok']}，部分缺失 {counts['partial']}，缺失 {counts['missing']}，未同步 {counts['skipped']}")
+    log.info(f"报告已生成：{REPORT}")
+    if not args.no_open:
+        webbrowser.open(REPORT.as_uri())
 
 
 def setup_logging(verbose):
@@ -204,13 +225,15 @@ def main():
     s = sub.add_parser("sync", help="写入 Trakt")
     s.add_argument("--dry-run", action="store_true", help="只预览，不写入")
     s.add_argument("--include-uncertain", action="store_true", help="同时同步 uncertain 的匹配")
+    rp = sub.add_parser("report", help="生成网页报告，对照 Bangumi 和 Trakt 上的实际数据")
+    rp.add_argument("--no-open", action="store_true", help="只生成文件，不自动打开浏览器")
     args = p.parse_args()
 
     setup_logging(args.verbose)
     log.debug("===== %s | Python %s | %s", " ".join(sys.argv[1:]), platform.python_version(), platform.platform())
     try:
         cfg = load_config()
-        {"auth": cmd_auth, "match": cmd_match, "review": cmd_review, "sync": cmd_sync}[args.cmd](cfg, args)
+        {"auth": cmd_auth, "match": cmd_match, "review": cmd_review, "sync": cmd_sync, "report": cmd_report}[args.cmd](cfg, args)
     except SystemExit as e:
         if isinstance(e.code, str):
             log.error(e.code)

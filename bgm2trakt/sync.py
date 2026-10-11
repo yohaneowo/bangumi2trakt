@@ -68,6 +68,18 @@ class Plan:
         return {"history": history, "ratings": ratings, "watchlist": watchlist}
 
 
+def target_episodes(it, e, trakt):
+    """The Trakt (season, episode) list a Bangumi show collection stands for, or None if
+    it has no watched episodes. 看过 = the whole subject, otherwise the first ep_status episodes."""
+    if it["type"] == 2:
+        count = e.get("episode_count") or it["subject"].get("eps") or None
+    else:
+        count = it.get("ep_status") or 0
+    if count == 0:
+        return None
+    return episode_range(trakt.seasons(e["trakt_id"]), e["season"], e["episode_start"], count)
+
+
 def build_plan(items, mapping, trakt, opts, include_uncertain):
     log.info("正在读取 Trakt 上已有的观看记录……")
     watched_movies = {m["movie"]["ids"]["trakt"] for m in trakt.watched("movies")}
@@ -102,12 +114,8 @@ def build_plan(items, mapping, trakt, opts, include_uncertain):
                     plan.history_movies[tid] = watched_at
                     parts.append("标记看过")
             else:
-                if ctype == 2:
-                    count = e.get("episode_count") or it["subject"].get("eps") or None
-                else:
-                    count = it.get("ep_status") or 0
-                if count != 0:
-                    eps = episode_range(trakt.seasons(tid), e["season"], e["episode_start"], count)
+                eps = target_episodes(it, e, trakt)
+                if eps is not None:
                     new = [x for x in eps if x not in watched_eps.get(tid, ())]
                     for s, n in new:
                         plan.history_shows[tid][s].setdefault(n, watched_at)
