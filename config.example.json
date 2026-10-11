@@ -1,0 +1,22 @@
+{
+  "bangumi": {
+    "username": "",
+    "access_token": "",
+    "subject_types": [2, 6]
+  },
+  "trakt": {
+    "client_id": "",
+    "client_secret": ""
+  },
+  "tmdb": {
+    "api_key": ""
+  },
+  "sync": {
+    "history": true,
+    "history_collection_types": [2, 3, 4, 5],
+    "ratings": true,
+    "rating_target": "season",
+    "watchlist": true,
+    "watched_at": "collection"
+  }
+}
