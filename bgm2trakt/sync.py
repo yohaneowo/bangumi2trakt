@@ -1,9 +1,13 @@
 """Turn Bangumi collections + mapping.json into Trakt history / ratings / watchlist payloads."""
+import json
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
 from .bangumi import COLLECTION_TYPES
 from .matcher import episode_range
+
+log = logging.getLogger(__name__)
 
 
 def to_trakt_time(iso):
@@ -65,15 +69,18 @@ class Plan:
 
 
 def build_plan(items, mapping, trakt, opts, include_uncertain):
+    log.info("正在读取 Trakt 上已有的观看记录……")
     watched_movies = {m["movie"]["ids"]["trakt"] for m in trakt.watched("movies")}
-    watched_eps = {
-        s["show"]["ids"]["trakt"]: {(se["number"], e["number"]) for se in s.get("seasons", []) for e in se["episodes"]}
-        for s in trakt.watched("shows")
-    }
+    watched_eps = trakt.watched_episodes()
+    log.info("Trakt 上已有：电影 %d 部，剧集 %d 部共 %d 集",
+             len(watched_movies), len(watched_eps), sum(len(v) for v in watched_eps.values()))
+    log.info("正在读取每部剧的分集信息，生成同步计划（每部约 1 秒）……")
 
     plan = Plan()
     skipped = defaultdict(int)
-    for it in items:
+    for n, it in enumerate(items, 1):
+        if n % 25 == 0 or n == len(items):
+            log.info("  %d/%d", n, len(items))
         e = mapping.get(str(it["subject_id"]))
         status = e["status"] if e else "unmatched"
         if status in ("unmatched", "not_found", "skip") or (status == "uncertain" and not include_uncertain):
@@ -132,13 +139,18 @@ def _chunks(body, size):
 
 
 def apply_plan(trakt, bodies):
+    log.info("正在写入 Trakt……")
     for name, path in (("history", "/sync/history"), ("ratings", "/sync/ratings"), ("watchlist", "/sync/watchlist")):
         added = defaultdict(int)
         not_found = 0
         for chunk in _chunks(bodies[name], 50):
             res = trakt.post(path, chunk) or {}
+            log.debug("POST %s 返回：%s", path, json.dumps(res, ensure_ascii=False))
             for k, v in (res.get("added") or {}).items():
                 added[k] += v
-            not_found += sum(len(v) for v in (res.get("not_found") or {}).values() if isinstance(v, list))
+            for kind, rows in (res.get("not_found") or {}).items():
+                if isinstance(rows, list) and rows:
+                    not_found += len(rows)
+                    log.warning("%s: Trakt 找不到这些 %s：%s", name, kind, json.dumps(rows, ensure_ascii=False))
         summary = ", ".join(f"{k} {v}" for k, v in added.items() if v) or "无"
-        print(f"{name}: 新增 {summary}" + (f"，Trakt 找不到 {not_found} 项" if not_found else ""))
+        log.info(f"{name}: 新增 {summary}" + (f"，Trakt 找不到 {not_found} 项" if not_found else ""))

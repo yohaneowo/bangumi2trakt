@@ -6,7 +6,8 @@
   },
   "trakt": {
     "client_id": "",
-    "client_secret": ""
+    "client_secret": "",
+    "redirect_uri": "http://localhost:8765/callback"
   },
   "tmdb": {
     "api_key": ""
